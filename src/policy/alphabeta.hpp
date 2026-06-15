@@ -15,7 +15,8 @@ struct ABParams {
     bool use_kp_eval = true;
     bool use_eval_mobility = true;
     bool report_partial = true;
-    bool order_moves = true;   // MVV-LVA capture ordering
+    bool order_moves = true;    // MVV-LVA capture ordering
+    bool use_quiescence = true; // captures-only search at the leaf
 
     static ABParams from_map(const ParamMap& m){
         ABParams p;
@@ -23,6 +24,7 @@ struct ABParams {
         p.use_eval_mobility = param_bool(m, "UseEvalMobility", true);
         p.report_partial    = param_bool(m, "ReportPartial", true);
         p.order_moves       = param_bool(m, "OrderMoves", true);
+        p.use_quiescence    = param_bool(m, "UseQuiescence", true);
         return p;
     }
 };
@@ -32,6 +34,15 @@ public:
     static int eval_ctx(
         State *state,
         int depth,
+        GameHistory& history,
+        int ply,
+        SearchContext& ctx,
+        int alpha,
+        int beta,
+        const ABParams& p
+    );
+    static int qsearch(
+        State *state,
         GameHistory& history,
         int ply,
         SearchContext& ctx,

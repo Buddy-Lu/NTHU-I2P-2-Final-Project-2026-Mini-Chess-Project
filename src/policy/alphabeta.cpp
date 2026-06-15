@@ -59,6 +59,100 @@ static void order_moves(State* state){
 }
 
 
+static inline bool is_capture(const State* s, const Move& m){
+    /* a capture lands on a square occupied by an opponent piece */
+    return s->piece_at(1 - s->player,
+                       (int)m.second.first, (int)m.second.second) > 0;
+}
+
+/*============================================================
+ * Quiescence search
+ *
+ * At a normal leaf the static eval can be badly wrong mid-trade
+ * ("horizon effect": we stop right after grabbing a pawn but
+ * before the recapture). Quiescence keeps searching *only
+ * captures* (and promotions) until the position is quiet, so the
+ * eval is taken at a stable point.
+ *
+ * "Stand pat": the side to move may decline to capture and accept
+ * the static score, so it bounds the search (we never force a bad
+ * capture). Negamax window, same as eval_ctx.
+ *============================================================*/
+int AlphaBeta::qsearch(
+    State *state,
+    GameHistory& history,
+    int ply,
+    SearchContext& ctx,
+    int alpha,
+    int beta,
+    const ABParams& p
+){
+    ctx.nodes++;
+    if(ply > ctx.seldepth){
+        ctx.seldepth = ply;
+    }
+    if(ctx.stop){
+        return 0;
+    }
+
+    if(state->legal_actions.empty() && state->game_state == UNKNOWN){
+        state->get_legal_actions();
+    }
+    if(state->game_state == WIN){
+        return P_MAX - ply;
+    }
+    if(state->game_state == DRAW){
+        return 0;
+    }
+
+    /* Stand-pat: static score if we stop capturing here. */
+    int stand_pat = state->evaluate(p.use_kp_eval, p.use_eval_mobility, &history);
+    if(stand_pat >= beta){
+        return stand_pat;                 /* opponent won't enter this line */
+    }
+    if(stand_pat > alpha){
+        alpha = stand_pat;
+    }
+
+    /* Safety cap on quiescence depth (capture chains are short, but
+     * guard against pathological positions). */
+    if(ply > 64){
+        return alpha;
+    }
+
+    if(p.order_moves){
+        order_moves(state);
+    }
+
+    int best = stand_pat;
+    for(auto& action : state->legal_actions){
+        if(!is_capture(state, action)){
+            continue;                     /* quiescence: captures only */
+        }
+        State* next = static_cast<State*>(state->next_state(action));
+        bool same = next->same_player_as_parent();
+
+        int child;
+        if(same){
+            child = qsearch(next, history, ply + 1, ctx, alpha, beta, p);
+        }else{
+            child = -qsearch(next, history, ply + 1, ctx, -beta, -alpha, p);
+        }
+        delete next;
+
+        if(child > best){
+            best = child;
+        }
+        if(best > alpha){
+            alpha = best;
+        }
+        if(alpha >= beta){
+            break;
+        }
+    }
+    return best;
+}
+
 /*============================================================
  * AlphaBeta — eval_ctx
  *
@@ -104,11 +198,11 @@ int AlphaBeta::eval_ctx(
     }
     history.push(state->hash());
 
-    /* === Leaf: static evaluation === */
+    /* === Leaf: quiescence (or plain static eval) === */
     if(depth <= 0){
-        int score = state->evaluate(
-            p.use_kp_eval, p.use_eval_mobility, &history
-        );
+        int score = p.use_quiescence
+            ? qsearch(state, history, ply, ctx, alpha, beta, p)
+            : state->evaluate(p.use_kp_eval, p.use_eval_mobility, &history);
         history.pop(state->hash());
         return score;
     }
@@ -234,6 +328,7 @@ ParamMap AlphaBeta::default_params(){
         {"UseEvalMobility", "true"},
         {"ReportPartial", "true"},
         {"OrderMoves", "true"},
+        {"UseQuiescence", "true"},
     };
 }
 
@@ -243,5 +338,6 @@ std::vector<ParamDef> AlphaBeta::param_defs(){
         {"UseEvalMobility", ParamDef::CHECK, "true"},
         {"ReportPartial", ParamDef::CHECK, "true"},
         {"OrderMoves", ParamDef::CHECK, "true"},
+        {"UseQuiescence", ParamDef::CHECK, "true"},
     };
 }
