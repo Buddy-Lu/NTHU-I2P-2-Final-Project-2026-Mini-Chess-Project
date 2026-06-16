@@ -1,8 +1,127 @@
 #include <utility>
 #include <chrono>
+#include <vector>
+#include <cstdint>
+#include <algorithm>
 #include "state.hpp"
 #include "config.hpp"
 #include "pvs.hpp"
+
+
+/*============================================================
+ * Transposition table
+ *
+ * Caches the result of searching a position (keyed by its Zobrist
+ * hash) so transpositions — different move orders reaching the
+ * same position — are not re-searched. Each entry also stores the
+ * best move found, which is tried first next time: by far the
+ * strongest move-ordering signal there is.
+ *
+ * Replacement: depth-preferred (keep the deeper search). The full
+ * 64-bit key is stored so hash collisions are detected, not used.
+ *============================================================*/
+namespace {
+
+enum TTFlag : uint8_t { TT_NONE = 0, TT_EXACT, TT_LOWER, TT_UPPER };
+
+struct TTEntry {
+    uint64_t key   = 0;     // full Zobrist key (collision check)
+    int32_t  score = 0;
+    uint16_t move  = 0;     // packed from/to (0 = none)
+    int16_t  depth = -1;
+    uint8_t  flag  = TT_NONE;
+};
+
+std::vector<TTEntry> g_tt;
+uint64_t g_tt_mask = 0;
+
+constexpr int TT_BITS = 22;             // 2^22 entries (~80 MB), well under 4 GB
+constexpr int MATE_ZONE = P_MAX - 1000; // scores above this are mate-distance
+
+void tt_init(){
+    if(g_tt.empty()){
+        g_tt.assign(static_cast<size_t>(1) << TT_BITS, TTEntry{});
+        g_tt_mask = (static_cast<uint64_t>(1) << TT_BITS) - 1;
+    }
+}
+
+inline uint16_t pack_move(const Move& m){
+    int from = static_cast<int>(m.first.first)  * BOARD_W + static_cast<int>(m.first.second);
+    int to   = static_cast<int>(m.second.first) * BOARD_W + static_cast<int>(m.second.second);
+    return static_cast<uint16_t>((from << 8) | to);
+}
+
+inline Move unpack_move(uint16_t pm){
+    int from = pm >> 8, to = pm & 0xFF;
+    return Move(Point(from / BOARD_W, from % BOARD_W),
+                Point(to   / BOARD_W, to   % BOARD_W));
+}
+
+/* Mate scores are stored relative to the node (ply-independent) so a
+ * cached mate is still correct when probed at a different ply. */
+inline int tt_score_to_store(int score, int ply){
+    if(score >=  MATE_ZONE) return score + ply;
+    if(score <= -MATE_ZONE) return score - ply;
+    return score;
+}
+inline int tt_score_from_probe(int score, int ply){
+    if(score >=  MATE_ZONE) return score - ply;
+    if(score <= -MATE_ZONE) return score + ply;
+    return score;
+}
+
+/* Probe: returns true and sets `out` if a usable cutoff exists for
+ * this depth/window. Always sets `tt_move` (0 if none) for ordering. */
+bool tt_probe(uint64_t key, int depth, int ply, int alpha, int beta,
+              int& out, uint16_t& tt_move){
+    tt_move = 0;
+    const TTEntry& e = g_tt[key & g_tt_mask];
+    if(e.key != key || e.flag == TT_NONE){
+        return false;
+    }
+    tt_move = e.move;
+    if(e.depth < depth){
+        return false;                 /* shallower: use move, not the score */
+    }
+    int s = tt_score_from_probe(e.score, ply);
+    if(e.flag == TT_EXACT){ out = s; return true; }
+    if(e.flag == TT_LOWER && s >= beta){ out = s; return true; }
+    if(e.flag == TT_UPPER && s <= alpha){ out = s; return true; }
+    return false;
+}
+
+void tt_store(uint64_t key, int depth, int ply, int score, uint8_t flag, uint16_t move){
+    TTEntry& e = g_tt[key & g_tt_mask];
+    /* depth-preferred replacement; always replace a different position */
+    if(e.key == key && e.depth > depth && e.flag != TT_NONE){
+        if(move && e.move == 0) e.move = move;  /* keep deeper, refresh move */
+        return;
+    }
+    e.key   = key;
+    e.score = tt_score_to_store(score, ply);
+    e.move  = move ? move : e.move;
+    e.depth = static_cast<int16_t>(depth);
+    e.flag  = flag;
+}
+
+/* Move the TT/hash move to the front of an already-ordered list. */
+void promote_tt_move(State* state, uint16_t tt_move){
+    if(!tt_move){
+        return;
+    }
+    Move m = unpack_move(tt_move);
+    auto& mv = state->legal_actions;
+    for(size_t i = 0; i < mv.size(); i++){
+        if(mv[i] == m){
+            if(i != 0){
+                std::rotate(mv.begin(), mv.begin() + i, mv.begin() + i + 1);
+            }
+            return;
+        }
+    }
+}
+
+} // namespace
 
 
 /*============================================================
@@ -47,21 +166,38 @@ int PVS::eval_ctx(
     if(state->check_repetition(history, rep_score)){
         return rep_score;
     }
-    history.push(state->hash());
+
+    uint64_t key = state->hash();
+    history.push(key);
 
     if(depth <= 0){
         int score = p.use_quiescence
             ? AlphaBeta::qsearch(state, history, ply, ctx, alpha, beta, p)
             : state->evaluate(p.use_kp_eval, p.use_eval_mobility, &history);
-        history.pop(state->hash());
+        history.pop(key);
         return score;
+    }
+
+    /* === Transposition-table probe === */
+    int alpha_orig = alpha;
+    uint16_t tt_move = 0;
+    if(p.use_tt){
+        int tt_val;
+        if(tt_probe(key, depth, ply, alpha, beta, tt_val, tt_move)){
+            history.pop(key);
+            return tt_val;
+        }
     }
 
     if(p.order_moves){
         AlphaBeta::order_moves(state);
     }
+    if(p.use_tt){
+        promote_tt_move(state, tt_move);  /* hash move first */
+    }
 
     int best_score = M_MAX;
+    Move best_move = state->legal_actions[0];
     bool first = true;
 
     for(auto& action : state->legal_actions){
@@ -97,6 +233,7 @@ int PVS::eval_ctx(
 
         if(child > best_score){
             best_score = child;
+            best_move = action;
         }
         if(best_score > alpha){
             alpha = best_score;
@@ -107,7 +244,15 @@ int PVS::eval_ctx(
         first = false;
     }
 
-    history.pop(state->hash());
+    /* === Transposition-table store === */
+    if(p.use_tt){
+        uint8_t flag = (best_score <= alpha_orig) ? TT_UPPER
+                     : (best_score >= beta)       ? TT_LOWER
+                                                  : TT_EXACT;
+        tt_store(key, depth, ply, best_score, flag, pack_move(best_move));
+    }
+
+    history.pop(key);
     return best_score;
 }
 
@@ -142,8 +287,20 @@ SearchResult PVS::search(
     int move_index = 0;
     int total_moves = (int)state->legal_actions.size();
 
+    uint64_t key = state->hash();
+    uint16_t tt_move = 0;
+    if(p.use_tt){
+        tt_init();
+        int tt_val;
+        /* probe for the hash move only (no cutoff at the root) */
+        tt_probe(key, 0, 0, alpha, beta, tt_val, tt_move);
+    }
+
     if(p.order_moves){
         AlphaBeta::order_moves(state);
+    }
+    if(p.use_tt){
+        promote_tt_move(state, tt_move);
     }
 
     for(auto& action : state->legal_actions){
@@ -190,6 +347,12 @@ SearchResult PVS::search(
         move_index++;
     }
 
+    /* Store the root result (EXACT — full window) so the next
+     * iterative-deepening pass searches this move first. */
+    if(p.use_tt && !ctx.stop){
+        tt_store(key, depth, 0, best_score, TT_EXACT, pack_move(result.best_move));
+    }
+
     auto t_end = std::chrono::high_resolution_clock::now();
     result.score = best_score;
     result.nodes = ctx.nodes;
@@ -211,6 +374,7 @@ ParamMap PVS::default_params(){
         {"ReportPartial", "true"},
         {"OrderMoves", "true"},
         {"UseQuiescence", "true"},
+        {"UseTT", "true"},
     };
 }
 
@@ -221,5 +385,6 @@ std::vector<ParamDef> PVS::param_defs(){
         {"ReportPartial", ParamDef::CHECK, "true"},
         {"OrderMoves", ParamDef::CHECK, "true"},
         {"UseQuiescence", ParamDef::CHECK, "true"},
+        {"UseTT", ParamDef::CHECK, "true"},
     };
 }

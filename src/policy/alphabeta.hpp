@@ -17,6 +17,7 @@ struct ABParams {
     bool report_partial = true;
     bool order_moves = true;    // MVV-LVA capture ordering
     bool use_quiescence = true; // captures-only search at the leaf
+    bool use_tt = true;         // transposition table (PVS policy)
 
     static ABParams from_map(const ParamMap& m){
         ABParams p;
@@ -25,6 +26,7 @@ struct ABParams {
         p.report_partial    = param_bool(m, "ReportPartial", true);
         p.order_moves       = param_bool(m, "OrderMoves", true);
         p.use_quiescence    = param_bool(m, "UseQuiescence", true);
+        p.use_tt            = param_bool(m, "UseTT", true);
         return p;
     }
 };
