@@ -37,7 +37,7 @@ static inline int move_order_key(const State* s, const Move& m){
     return key;
 }
 
-static void order_moves(State* state){
+void AlphaBeta::order_moves(State* state){
     auto& moves = state->legal_actions;
     const size_t n = moves.size();
     if(n < 2){

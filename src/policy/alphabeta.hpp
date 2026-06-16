@@ -31,6 +31,9 @@ struct ABParams {
 
 class AlphaBeta{
 public:
+    /* Shared MVV-LVA move ordering (reused by the PVS policy). */
+    static void order_moves(State* state);
+
     static int eval_ctx(
         State *state,
         int depth,
