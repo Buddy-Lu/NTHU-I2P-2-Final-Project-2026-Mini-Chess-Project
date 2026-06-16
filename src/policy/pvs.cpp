@@ -319,7 +319,7 @@ int PVS::eval_ctx(
 
     int best_score = M_MAX;
     Move best_move = state->legal_actions[0];
-    bool first = true;
+    int move_index = 0;
 
     for(auto& action : state->legal_actions){
         State* next = static_cast<State*>(state->next_state(action));
@@ -327,8 +327,8 @@ int PVS::eval_ctx(
 
         int child;
         if(same){
-            /* same player keeps moving: window not flipped */
-            if(first){
+            /* same player keeps moving: window not flipped (no LMR here) */
+            if(move_index == 0){
                 child = eval_ctx(next, depth - 1, history, ply + 1, ctx, alpha, beta, p);
             }else{
                 child = eval_ctx(next, depth - 1, history, ply + 1, ctx, alpha, alpha + 1, p);
@@ -336,17 +336,36 @@ int PVS::eval_ctx(
                     child = eval_ctx(next, depth - 1, history, ply + 1, ctx, alpha, beta, p);
                 }
             }
+        }else if(move_index == 0){
+            /* first move: full window establishes the PV */
+            child = -eval_ctx(next, depth - 1, history, ply + 1, ctx, -beta, -alpha, p);
         }else{
-            /* opponent to move: negate score, flip & negate window */
-            if(first){
+            /* === Late Move Reductions ===
+             * Late, quiet moves are unlikely to be best after good
+             * ordering, so scout them at reduced depth; only re-search
+             * at full depth if the scout beats alpha. */
+            int reduction = 0;
+            int attacker = state->piece_at(state->player,
+                                           (int)action.first.first, (int)action.first.second);
+            bool promo = (attacker == 1 &&
+                          ((int)action.second.first == 0 ||
+                           (int)action.second.first == BOARD_H - 1));
+            bool quiet = !is_capture(state, action) && !promo;
+            if(p.use_lmr && quiet && move_index >= 3 && depth >= 3){
+                reduction = 1 + ((move_index >= 6 && depth >= 6) ? 1 : 0);
+            }
+
+            /* reduced-depth null-window scout */
+            child = -eval_ctx(next, depth - 1 - reduction, history, ply + 1, ctx,
+                              -alpha - 1, -alpha, p);
+            /* if a reduced move beat alpha, re-search at full depth */
+            if(reduction > 0 && child > alpha){
+                child = -eval_ctx(next, depth - 1, history, ply + 1, ctx,
+                                  -alpha - 1, -alpha, p);
+            }
+            /* full-window PVS re-search if it's a new PV candidate */
+            if(child > alpha && child < beta){
                 child = -eval_ctx(next, depth - 1, history, ply + 1, ctx, -beta, -alpha, p);
-            }else{
-                /* null-window scout around alpha */
-                child = -eval_ctx(next, depth - 1, history, ply + 1, ctx, -alpha - 1, -alpha, p);
-                if(child > alpha && child < beta){
-                    /* probe surprised us: this move may be a new PV — re-search full */
-                    child = -eval_ctx(next, depth - 1, history, ply + 1, ctx, -beta, -alpha, p);
-                }
             }
         }
 
@@ -363,7 +382,7 @@ int PVS::eval_ctx(
             update_cutoff_heuristics(state, best_move, ply, depth);
             break;                  /* beta cutoff */
         }
-        first = false;
+        move_index++;
     }
 
     /* === Transposition-table store === */
@@ -496,6 +515,7 @@ ParamMap PVS::default_params(){
         {"UseQuiescence", "true"},
         {"UseTT", "true"},
         {"UseNullMove", "true"},
+        {"UseLMR", "true"},
     };
 }
 
@@ -508,5 +528,6 @@ std::vector<ParamDef> PVS::param_defs(){
         {"UseQuiescence", ParamDef::CHECK, "true"},
         {"UseTT", ParamDef::CHECK, "true"},
         {"UseNullMove", ParamDef::CHECK, "true"},
+        {"UseLMR", ParamDef::CHECK, "true"},
     };
 }
