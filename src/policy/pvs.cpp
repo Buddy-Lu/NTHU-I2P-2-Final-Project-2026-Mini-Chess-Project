@@ -104,21 +104,104 @@ void tt_store(uint64_t key, int depth, int ply, int score, uint8_t flag, uint16_
     e.flag  = flag;
 }
 
-/* Move the TT/hash move to the front of an already-ordered list. */
-void promote_tt_move(State* state, uint16_t tt_move){
-    if(!tt_move){
-        return;
+/*============================================================
+ * Move-ordering heuristics: killers + history
+ *
+ * Captures are ordered by MVV-LVA, but most moves in a chess
+ * search are *quiet* (non-captures) and MVV-LVA says nothing about
+ * them. Two cheap, powerful heuristics fix that:
+ *
+ *  - Killer moves: a quiet move that caused a beta-cutoff at a
+ *    given ply is likely to cut off sibling nodes at the same ply
+ *    too, so we try the last two such moves early.
+ *  - History heuristic: a per (side, from, to) table of how often
+ *    a quiet move caused a cutoff (weighted by depth^2). Quiet
+ *    moves are then ordered by this score.
+ *============================================================*/
+constexpr int MAX_PLY = 128;
+uint16_t g_killers[MAX_PLY][2];
+int      g_history[2][30][30];
+
+void clear_heuristics(){
+    for(int i = 0; i < MAX_PLY; i++){
+        g_killers[i][0] = g_killers[i][1] = 0;
     }
-    Move m = unpack_move(tt_move);
-    auto& mv = state->legal_actions;
-    for(size_t i = 0; i < mv.size(); i++){
-        if(mv[i] == m){
-            if(i != 0){
-                std::rotate(mv.begin(), mv.begin() + i, mv.begin() + i + 1);
+    for(int s = 0; s < 2; s++){
+        for(int f = 0; f < 30; f++){
+            for(int t = 0; t < 30; t++){
+                g_history[s][f][t] = 0;
             }
-            return;
         }
     }
+}
+
+inline bool is_capture(const State* s, const Move& m){
+    return s->piece_at(1 - s->player,
+                       (int)m.second.first, (int)m.second.second) > 0;
+}
+
+inline int mvv_lva(const State* s, const Move& m){
+    int victim   = s->piece_at(1 - s->player, (int)m.second.first, (int)m.second.second);
+    int attacker = s->piece_at(s->player,     (int)m.first.first,  (int)m.first.second);
+    return PIECE_VALUES[victim] * 16 - PIECE_VALUES[attacker];
+}
+
+/* Order this node's moves: TT move, then captures (MVV-LVA), then
+ * killers, then quiet moves by history score. */
+void order_moves(State* state, int ply, uint16_t tt_move){
+    auto& moves = state->legal_actions;
+    const size_t n = moves.size();
+    if(n < 2){
+        return;
+    }
+    int self = state->player;
+    std::vector<std::pair<int, Move>> scored;
+    scored.reserve(n);
+    for(const auto& m : moves){
+        uint16_t pm = pack_move(m);
+        int from = (int)m.first.first  * BOARD_W + (int)m.first.second;
+        int to   = (int)m.second.first * BOARD_W + (int)m.second.second;
+        int key;
+        if(pm == tt_move){
+            key = 2000000;
+        }else if(is_capture(state, m)){
+            key = 1000000 + mvv_lva(state, m);
+        }else if(ply < MAX_PLY && pm == g_killers[ply][0]){
+            key = 900000;
+        }else if(ply < MAX_PLY && pm == g_killers[ply][1]){
+            key = 800000;
+        }else{
+            key = g_history[self][from][to];   /* quiet: history score */
+        }
+        /* pawn promotion (to back rank) is always worth trying early */
+        int attacker = state->piece_at(self, (int)m.first.first, (int)m.first.second);
+        if(attacker == 1 && ((int)m.second.first == 0 || (int)m.second.first == BOARD_H - 1)){
+            key += 500000;
+        }
+        scored.emplace_back(key, m);
+    }
+    std::stable_sort(scored.begin(), scored.end(),
+        [](const std::pair<int, Move>& a, const std::pair<int, Move>& b){
+            return a.first > b.first;
+        });
+    for(size_t i = 0; i < n; i++){
+        moves[i] = scored[i].second;
+    }
+}
+
+/* Record a quiet move that caused a beta cutoff. */
+void update_cutoff_heuristics(const State* state, const Move& m, int ply, int depth){
+    if(is_capture(state, m)){
+        return;                          /* captures handled by MVV-LVA */
+    }
+    uint16_t pm = pack_move(m);
+    if(ply < MAX_PLY && g_killers[ply][0] != pm){
+        g_killers[ply][1] = g_killers[ply][0];
+        g_killers[ply][0] = pm;
+    }
+    int from = (int)m.first.first  * BOARD_W + (int)m.first.second;
+    int to   = (int)m.second.first * BOARD_W + (int)m.second.second;
+    g_history[state->player][from][to] += depth * depth;
 }
 
 } // namespace
@@ -190,10 +273,7 @@ int PVS::eval_ctx(
     }
 
     if(p.order_moves){
-        AlphaBeta::order_moves(state);
-    }
-    if(p.use_tt){
-        promote_tt_move(state, tt_move);  /* hash move first */
+        order_moves(state, ply, tt_move);
     }
 
     int best_score = M_MAX;
@@ -239,6 +319,7 @@ int PVS::eval_ctx(
             alpha = best_score;
         }
         if(alpha >= beta){
+            update_cutoff_heuristics(state, best_move, ply, depth);
             break;                  /* beta cutoff */
         }
         first = false;
@@ -295,12 +376,10 @@ SearchResult PVS::search(
         /* probe for the hash move only (no cutoff at the root) */
         tt_probe(key, 0, 0, alpha, beta, tt_val, tt_move);
     }
+    clear_heuristics();
 
     if(p.order_moves){
-        AlphaBeta::order_moves(state);
-    }
-    if(p.use_tt){
-        promote_tt_move(state, tt_move);
+        order_moves(state, 0, tt_move);
     }
 
     for(auto& action : state->legal_actions){
