@@ -189,6 +189,21 @@ void order_moves(State* state, int ply, uint16_t tt_move){
     }
 }
 
+/* Side to move has at least one rook/knight/bishop/queen — used to
+ * gate null-move pruning, which is unsound in pawn/king-only
+ * endgames (zugzwang). */
+inline bool has_non_pawn_material(const State* s){
+    for(int r = 0; r < BOARD_H; r++){
+        for(int c = 0; c < BOARD_W; c++){
+            int pc = s->piece_at(s->player, r, c);
+            if(pc >= 2 && pc <= 5){
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 /* Record a quiet move that caused a beta cutoff. */
 void update_cutoff_heuristics(const State* state, const Move& m, int ply, int depth){
     if(is_capture(state, m)){
@@ -224,7 +239,8 @@ int PVS::eval_ctx(
     SearchContext& ctx,
     int alpha,
     int beta,
-    const ABParams& p
+    const ABParams& p,
+    bool null_ok
 ){
     ctx.nodes++;
     if(ply > ctx.seldepth){
@@ -269,6 +285,31 @@ int PVS::eval_ctx(
         if(tt_probe(key, depth, ply, alpha, beta, tt_val, tt_move)){
             history.pop(key);
             return tt_val;
+        }
+    }
+
+    /* === Null-move pruning ===
+     * Give the opponent a free move ("pass"). If our position is still
+     * good enough to beat beta even after that, the real position is
+     * almost certainly a cutoff — so prune without searching it fully.
+     * Guards: depth left, non-mate window, not in check, and we hold
+     * some non-pawn material (zugzwang safety). */
+    if(p.use_null && null_ok && depth >= 3
+       && beta < MATE_ZONE && beta > -MATE_ZONE
+       && has_non_pawn_material(state)){
+        BaseState* null_bs = state->create_null_state();
+        State* null_st = static_cast<State*>(null_bs);
+        if(null_st->game_state != WIN){          /* not in check */
+            const int R = 2;                     /* reduction */
+            int null_score = -eval_ctx(null_st, depth - 1 - R, history,
+                                       ply + 1, ctx, -beta, -beta + 1, p, false);
+            delete null_bs;
+            if(null_score >= beta){
+                history.pop(key);
+                return beta;                     /* fail-high: prune */
+            }
+        }else{
+            delete null_bs;
         }
     }
 
@@ -454,6 +495,7 @@ ParamMap PVS::default_params(){
         {"OrderMoves", "true"},
         {"UseQuiescence", "true"},
         {"UseTT", "true"},
+        {"UseNullMove", "true"},
     };
 }
 
@@ -465,5 +507,6 @@ std::vector<ParamDef> PVS::param_defs(){
         {"OrderMoves", ParamDef::CHECK, "true"},
         {"UseQuiescence", ParamDef::CHECK, "true"},
         {"UseTT", ParamDef::CHECK, "true"},
+        {"UseNullMove", ParamDef::CHECK, "true"},
     };
 }

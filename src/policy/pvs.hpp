@@ -28,7 +28,8 @@ public:
         SearchContext& ctx,
         int alpha,
         int beta,
-        const ABParams& p
+        const ABParams& p,
+        bool null_ok = true
     );
     static SearchResult search(
         State *state,
