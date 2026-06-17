@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import random
 import subprocess
 import sys
 import time
@@ -287,6 +288,35 @@ def _init_game_state(game_name: str):
     return _game_ctx["state_class"].initial()
 
 
+def _generate_opening(n_plies: int, rng: random.Random) -> list:
+    """Return a list of `n_plies` random *legal* UCI moves from the start
+    position, for randomized-opening self-play. Regenerates if a sequence hits
+    a terminal position; returns [] for generic games or n_plies <= 0."""
+    game_name = _game_ctx.get("name", "generic")
+    if game_name == "generic" or n_plies <= 0:
+        return []
+    for _attempt in range(30):
+        state = _init_game_state(game_name)
+        moves: list[str] = []
+        ok = True
+        for _ in range(n_plies):
+            result, _winner = _game_ctx["check_game_over"](state)
+            if result is not None:
+                ok = False
+                break
+            legal = list(state.legal_actions)
+            if not legal:
+                ok = False
+                break
+            mv = rng.choice(legal)
+            uci = _game_ctx["move_to_uci"](mv)
+            state, _ = _game_ctx["apply_move"](state, uci, _game_ctx)
+            moves.append(uci)
+        if ok and len(moves) == n_plies:
+            return moves
+    return []
+
+
 def _side_labels(game_name: str) -> tuple[str, str]:
     """Return (first_player_label, second_player_label) for the game."""
     if game_name in _SHOGI_FAMILY:
@@ -439,6 +469,7 @@ def run_game(
     params: list[str] | None = None,
     white_params: list[str] | None = None,
     black_params: list[str] | None = None,
+    opening: list | None = None,
 ) -> str:
     """Run a single game between two players.
 
@@ -451,6 +482,16 @@ def run_game(
     uci_moves: list[str] = []
     move_number = 0
     state = _init_game_state(game_name)
+
+    # Pre-load a fixed opening (randomized-opening self-play): both engines
+    # receive these moves via `position startpos moves ...`, and the local
+    # state is advanced so side-to-move / game-over stay correct.
+    if opening and has_state:
+        apply_fn = _game_ctx.get("apply_move")
+        for uci in opening:
+            uci_moves.append(uci)
+            if apply_fn is not None:
+                state, _ = apply_fn(state, uci, _game_ctx)
 
     if verbose:
         if game_num is not None and total_games is not None:
@@ -554,8 +595,14 @@ def run_tournament(
     params: list[str] | None = None,
     engine1_params: list[str] | None = None,
     engine2_params: list[str] | None = None,
+    open_random: int = 0,
+    seed: int = 0,
 ) -> None:
-    """Run a tournament of N games, alternating colors."""
+    """Run a tournament of N games, alternating colors.
+
+    With open_random > 0, each consecutive *pair* of games shares one random
+    opening (engine1 plays it as White then as Black), so opening/color bias
+    cancels out — essential for measuring small strength differences."""
     engine1_wins = 0
     engine2_wins = 0
     draws = 0
@@ -593,6 +640,13 @@ def run_tournament(
             else:
                 w_params, b_params = engine2_params, engine1_params
 
+            # Paired opening: games 2k and 2k+1 share opening k (seeded).
+            opening = []
+            if open_random > 0:
+                opening = _generate_opening(
+                    open_random, random.Random(seed * 1_000_003 + game_idx // 2)
+                )
+
             result = run_game(
                 w_path,
                 b_path,
@@ -606,6 +660,7 @@ def run_tournament(
                 params=params,
                 white_params=w_params,
                 black_params=b_params,
+                opening=opening,
             )
 
             match result:
@@ -727,6 +782,19 @@ def main() -> None:
         default=[],
         help="Set engine param for black only: --black-param UseEvalMobility=false",
     )
+    parser.add_argument(
+        "--open-random",
+        type=int,
+        default=0,
+        help="Play N random legal plies as a shared opening before each game "
+        "(paired across color swaps). For self-play tuning. Default 0.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Seed for --open-random, for reproducible openings (default 0).",
+    )
     args = parser.parse_args()
 
     _init_game(args.game.lower())
@@ -767,6 +835,8 @@ def main() -> None:
             params=args.param,
             engine1_params=wp,
             engine2_params=bp,
+            open_random=args.open_random,
+            seed=args.seed,
         )
         return
 
