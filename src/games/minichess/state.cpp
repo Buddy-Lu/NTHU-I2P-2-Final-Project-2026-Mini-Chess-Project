@@ -57,6 +57,52 @@ static int king_tropism(
     return 0;
 }
 
+/* Small bonus for having the move. */
+static const int kp_tempo = 6;
+
+/* Passed-pawn bonus, indexed by rows-to-promotion (0..BOARD_H-1):
+ * the closer to promotion, the larger. Promotion makes a Queen, which
+ * is decisive on a 6x5 board, so passed pawns are weighted heavily. */
+static const int passed_pawn_bonus[BOARD_H] = {0, 70, 45, 28, 16, 8};
+
+/* Total passed-pawn bonus for `owner`'s pawns.
+ * owner 0 promotes at row 0 (advances up); owner 1 at row BOARD_H-1. */
+static int passed_pawns(
+    const char self_b[BOARD_H][BOARD_W],
+    const char enemy_b[BOARD_H][BOARD_W],
+    int owner
+){
+    int total = 0;
+    for(int r = 0; r < BOARD_H; r++){
+        for(int c = 0; c < BOARD_W; c++){
+            if(self_b[r][c] != 1){
+                continue;                       /* pawns only */
+            }
+            int lo = (c > 0) ? c - 1 : 0;
+            int hi = (c < BOARD_W - 1) ? c + 1 : BOARD_W - 1;
+            bool passed = true;
+            if(owner == 0){
+                for(int rr = 0; rr < r && passed; rr++){
+                    for(int cc = lo; cc <= hi; cc++){
+                        if(enemy_b[rr][cc] == 1){ passed = false; break; }
+                    }
+                }
+            }else{
+                for(int rr = r + 1; rr < BOARD_H && passed; rr++){
+                    for(int cc = lo; cc <= hi; cc++){
+                        if(enemy_b[rr][cc] == 1){ passed = false; break; }
+                    }
+                }
+            }
+            if(passed){
+                int rows_to_go = (owner == 0) ? r : (BOARD_H - 1 - r);
+                total += passed_pawn_bonus[rows_to_go];
+            }
+        }
+    }
+    return total;
+}
+
 
 /*============================================================
  * evaluate() — runtime-selectable eval strategy
@@ -117,6 +163,11 @@ int State::evaluate(
                 }
             }
         }
+
+        /* passed pawns (promotion to Queen is decisive) + tempo */
+        self_score += passed_pawns(self_board, oppn_board, this->player);
+        oppn_score += passed_pawns(oppn_board, self_board, 1 - this->player);
+        self_score += kp_tempo;
 
     }else{
         /* === Simple material-only eval === */
