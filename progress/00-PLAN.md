@@ -69,12 +69,13 @@ between CP5 and CP6 (these are beyond the original list). Doc filenames drifted
 | +extra | Killer moves + history | ✅ done | `17-killers-history.md` |
 | +extra | Null-move pruning | ✅ done | `18-null-move.md` |
 | +extra | Late move reductions | ✅ done | `19-lmr.md` |
-| +extra | Aspiration windows | 🔄 in progress | finishing + testing now |
-| 6 | Eval tuning | ⬜ next | the remaining original-plan strength item |
+| +extra | Aspiration windows | ✅ done | `20-aspiration.md` |
+| 6 | Eval tuning | ✅ done | `21-eval-tuning.md` (passed pawns + tempo) |
 | 7 | Beat all baselines | 🟡 partial | weak ✅ strong ✅ boss ✅; AB/PVS baselines are TA-held (no local exe) |
-| 8 | Submission packaging | ⬜ deferred | discuss once code is done |
-| 9 | Report + git | 🟡 | git ✅ (8 commits pushed → bonus secured); report ⬜ deferred |
-| 10 | (Bonus) Boss | ✅ informally | sweeping 4–0 @ 2 s, won @ 10 s as White |
+| +extra | **Self-play tuning** | 🔄 in progress | `22-selfplay-plan.md` + `selfplay-journal.md` — push past boss for ranking |
+| 8 | Submission packaging | ⬜ pending | self-contained `114062317_submission.{cpp,hpp}` |
+| 9 | Report + git | 🟡 | git ✅ (11 commits → bonus secured); report drafting (`report.md` + `.tex`) |
+| 10 | (Bonus) Boss | ✅ | sweeping 4–0 @ 2 s, won @ 10 s as White |
 
 > Terminology note: **benchmark** (`build/minichess-benchmark`, from
 > `src/benchmark.cpp`) is a *speed-timing tool for our own search* — NOT an
