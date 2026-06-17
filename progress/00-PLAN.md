@@ -50,6 +50,37 @@ policy as `submission.cpp`, plus a report and (bonus) a git history.
 | 9 | Report + git | Draft `report.md`→PDF; `git init` + ≥3 commits + push | `19-report-git.md` |
 | 10 | (Bonus) Boss | Try to beat `boss-ubgi.exe` | `20-boss.md` |
 
+## Actual progress vs this plan (updated 2026-06-17)
+
+Plan CPs 0–5 are done. Then, on an explicit "go max / make all the algorithms
+come in" instruction, **5 extra search-strength checkpoints were inserted**
+between CP5 and CP6 (these are beyond the original list). Doc filenames drifted
+(11, 14–19; 10/12/13 folded into other steps) — cosmetic only.
+
+| Plan CP | Item | Status | Notes |
+|---|---|---|---|
+| 0 | Baseline harness | ✅ done | proven by every CLI match (no standalone doc) |
+| 1 | Alpha-Beta | ✅ done | `11-alphabeta.md` |
+| 2 | Move ordering | ✅ done | MVV-LVA in AB; later upgraded with killers+history |
+| 3 | Iterative deepening + time control | ✅ done | lives in `ubgi.cpp` (framework), verified |
+| 4 | Quiescence | ✅ done | `14-quiescence.md` |
+| 5 | PVS | ✅ done | `15-pvs.md` |
+| +extra | Transposition table | ✅ done | `16-transposition-table.md` — boss swept 4–0 |
+| +extra | Killer moves + history | ✅ done | `17-killers-history.md` |
+| +extra | Null-move pruning | ✅ done | `18-null-move.md` |
+| +extra | Late move reductions | ✅ done | `19-lmr.md` |
+| +extra | Aspiration windows | 🔄 in progress | finishing + testing now |
+| 6 | Eval tuning | ⬜ next | the remaining original-plan strength item |
+| 7 | Beat all baselines | 🟡 partial | weak ✅ strong ✅ boss ✅; AB/PVS baselines are TA-held (no local exe) |
+| 8 | Submission packaging | ⬜ deferred | discuss once code is done |
+| 9 | Report + git | 🟡 | git ✅ (8 commits pushed → bonus secured); report ⬜ deferred |
+| 10 | (Bonus) Boss | ✅ informally | sweeping 4–0 @ 2 s, won @ 10 s as White |
+
+> Terminology note: **benchmark** (`build/minichess-benchmark`, from
+> `src/benchmark.cpp`) is a *speed-timing tool for our own search* — NOT an
+> opponent. **Baselines** are the opponent engines (weak / strong / AB / PVS)
+> and the **boss** is the bonus opponent.
+
 ## Method notes
 
 - Build each algorithm as a **separate registered policy** (`alphabeta`,

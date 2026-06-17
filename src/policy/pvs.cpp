@@ -122,6 +122,11 @@ constexpr int MAX_PLY = 128;
 uint16_t g_killers[MAX_PLY][2];
 int      g_history[2][30][30];
 
+/* Previous iteration's root score/depth, for aspiration windows
+ * across the UBGI iterative-deepening loop. */
+int g_prev_score = 0;
+int g_prev_depth = 0;
+
 void clear_heuristics(){
     for(int i = 0; i < MAX_PLY; i++){
         g_killers[i][0] = g_killers[i][1] = 0;
@@ -423,9 +428,6 @@ SearchResult PVS::search(
     }
 
     const int INF = 1000000;
-    int alpha = -INF, beta = INF;
-    int best_score = -INF;
-    int move_index = 0;
     int total_moves = (int)state->legal_actions.size();
 
     uint64_t key = state->hash();
@@ -433,8 +435,8 @@ SearchResult PVS::search(
     if(p.use_tt){
         tt_init();
         int tt_val;
-        /* probe for the hash move only (no cutoff at the root) */
-        tt_probe(key, 0, 0, alpha, beta, tt_val, tt_move);
+        /* probe for the hash move only (depth 0, return ignored → no cutoff) */
+        tt_probe(key, 0, 0, -INF, INF, tt_val, tt_move);
     }
     clear_heuristics();
 
@@ -442,49 +444,84 @@ SearchResult PVS::search(
         order_moves(state, 0, tt_move);
     }
 
-    for(auto& action : state->legal_actions){
-        State* next = static_cast<State*>(state->next_state(action));
-        bool same = next->same_player_as_parent();
-
-        int child;
-        if(move_index == 0){
-            /* first move: full window establishes the PV baseline */
-            child = same
-                ? eval_ctx(next, depth - 1, history, 1, ctx, alpha, beta, p)
-                : -eval_ctx(next, depth - 1, history, 1, ctx, -beta, -alpha, p);
-        }else{
-            /* scout with a null window, re-search if it beats alpha */
-            if(same){
-                child = eval_ctx(next, depth - 1, history, 1, ctx, alpha, alpha + 1, p);
-                if(child > alpha && child < beta){
-                    child = eval_ctx(next, depth - 1, history, 1, ctx, alpha, beta, p);
-                }
-            }else{
-                child = -eval_ctx(next, depth - 1, history, 1, ctx, -alpha - 1, -alpha, p);
-                if(child > alpha && child < beta){
-                    child = -eval_ctx(next, depth - 1, history, 1, ctx, -beta, -alpha, p);
-                }
-            }
-        }
-
-        delete next;
-
-        if(move_index == 0){
-            result.best_move = action;
-        }
-
-        if(child > best_score){
-            best_score = child;
-            result.best_move = action;
-            if(best_score > alpha){
-                alpha = best_score;
-            }
-            if(p.report_partial && ctx.on_root_update){
-                ctx.on_root_update({result.best_move, best_score, depth, move_index + 1, total_moves});
-            }
-        }
-        move_index++;
+    /* === Aspiration window ===
+     * Re-search the root inside a narrow window around the previous
+     * iteration's score. A tighter window prunes more; if the true
+     * score falls outside it, we detect the fail-low/high and widen
+     * (so it is always correctness-safe — only ever a time cost). */
+    int best_score;
+    int asp_lo = -INF, asp_hi = INF;
+    bool use_asp = p.use_asp && depth >= 4
+                && g_prev_depth == depth - 1
+                && g_prev_score < MATE_ZONE && g_prev_score > -MATE_ZONE;
+    if(use_asp){
+        asp_lo = g_prev_score - 30;
+        asp_hi = g_prev_score + 30;
     }
+
+    for(;;){
+        int alpha = asp_lo, beta = asp_hi;
+        best_score = -INF;
+        int move_index = 0;
+        Move iter_best = state->legal_actions[0];
+
+        for(auto& action : state->legal_actions){
+            State* next = static_cast<State*>(state->next_state(action));
+            bool same = next->same_player_as_parent();
+
+            int child;
+            if(move_index == 0){
+                child = same
+                    ? eval_ctx(next, depth - 1, history, 1, ctx, alpha, beta, p)
+                    : -eval_ctx(next, depth - 1, history, 1, ctx, -beta, -alpha, p);
+            }else{
+                if(same){
+                    child = eval_ctx(next, depth - 1, history, 1, ctx, alpha, alpha + 1, p);
+                    if(child > alpha && child < beta){
+                        child = eval_ctx(next, depth - 1, history, 1, ctx, alpha, beta, p);
+                    }
+                }else{
+                    child = -eval_ctx(next, depth - 1, history, 1, ctx, -alpha - 1, -alpha, p);
+                    if(child > alpha && child < beta){
+                        child = -eval_ctx(next, depth - 1, history, 1, ctx, -beta, -alpha, p);
+                    }
+                }
+            }
+
+            delete next;
+
+            if(move_index == 0){
+                iter_best = action;
+            }
+            if(child > best_score){
+                best_score = child;
+                iter_best = action;
+                if(best_score > alpha){
+                    alpha = best_score;
+                }
+                if(p.report_partial && ctx.on_root_update){
+                    ctx.on_root_update({iter_best, best_score, depth, move_index + 1, total_moves});
+                }
+            }
+            move_index++;
+        }
+
+        result.best_move = iter_best;
+
+        /* fail low/high → widen and re-search; otherwise accept */
+        if(best_score <= asp_lo && asp_lo > -INF){
+            asp_lo = -INF;
+            continue;
+        }
+        if(best_score >= asp_hi && asp_hi < INF){
+            asp_hi = INF;
+            continue;
+        }
+        break;
+    }
+
+    g_prev_score = best_score;
+    g_prev_depth = depth;
 
     /* Store the root result (EXACT — full window) so the next
      * iterative-deepening pass searches this move first. */
@@ -516,6 +553,7 @@ ParamMap PVS::default_params(){
         {"UseTT", "true"},
         {"UseNullMove", "true"},
         {"UseLMR", "true"},
+        {"UseAspiration", "true"},
     };
 }
 
@@ -529,5 +567,6 @@ std::vector<ParamDef> PVS::param_defs(){
         {"UseTT", ParamDef::CHECK, "true"},
         {"UseNullMove", ParamDef::CHECK, "true"},
         {"UseLMR", ParamDef::CHECK, "true"},
+        {"UseAspiration", ParamDef::CHECK, "true"},
     };
 }

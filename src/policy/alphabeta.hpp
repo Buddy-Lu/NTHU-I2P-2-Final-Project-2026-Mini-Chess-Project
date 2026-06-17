@@ -20,6 +20,7 @@ struct ABParams {
     bool use_tt = true;         // transposition table (PVS policy)
     bool use_null = true;       // null-move pruning (PVS policy)
     bool use_lmr = true;        // late move reductions (PVS policy)
+    bool use_asp = true;        // aspiration windows at the root (PVS policy)
 
     static ABParams from_map(const ParamMap& m){
         ABParams p;
@@ -31,6 +32,7 @@ struct ABParams {
         p.use_tt            = param_bool(m, "UseTT", true);
         p.use_null          = param_bool(m, "UseNullMove", true);
         p.use_lmr           = param_bool(m, "UseLMR", true);
+        p.use_asp           = param_bool(m, "UseAspiration", true);
         return p;
     }
 };
