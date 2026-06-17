@@ -1,0 +1,159 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{verbatim}
+\usepackage{array}
+
+\title{\textbf{Mini Project 2 — MiniChess AI}}
+\author{Student ID: 114062317}
+\date{June 2026}
+
+\begin{document}
+\maketitle
+
+\noindent\textit{This report explains the design of my MiniChess engine: the
+state value function and the search algorithms (Minimax $\to$ Alpha-Beta $\to$
+PVS) together with the optimizations layered on top (move ordering, quiescence,
+transposition table, null-move pruning, late move reductions, aspiration
+windows). It is my reference for the demo.}
+
+\section{Overview}
+The engine is a game-agnostic search core talking to a MiniChess \texttt{State}
+(6$\times$5 board, king-capture win, pawns promote to Queen). My submission
+policy (\texttt{submission.cpp}, a copy of my \texttt{pvs} policy) implements the
+search; the state value function lives in \texttt{state.cpp::evaluate}.
+
+The decision pipeline is the classic one:
+\begin{enumerate}[noitemsep]
+  \item \textbf{Iterative deepening} searches depth $1,2,3,\dots$ until the 10\,s
+        budget runs out, always keeping the best move from the last completed depth.
+  \item At each depth, \textbf{PVS} (an Alpha-Beta refinement) explores the tree.
+  \item At the leaves, \textbf{quiescence} resolves pending captures, then the
+        \textbf{evaluation} scores the position.
+\end{enumerate}
+All code uses only the C++ standard library --- no third-party libraries, no
+inline assembly, no multithreading, no SIMD/AVX in the policy.
+
+\section{State value function (\texttt{evaluate})}
+The score is returned \textbf{from the side-to-move's perspective} (positive =
+good for the player to move). A won position returns \texttt{P\_MAX}. Otherwise
+\[
+\text{score} = (\text{my material} + \text{my positional}) - (\text{opponent's})
+              + \text{mobility} + \text{tempo}.
+\]
+\begin{itemize}[noitemsep]
+  \item \textbf{Material} (fine $\times 10$ scale): P=20, R=60, N=70, B=80,
+        Q=200, K=1000.
+  \item \textbf{Piece-Square Tables} --- positional bonus per (piece, square),
+        mirrored per color.
+  \item \textbf{King tropism} --- bonus for pieces near the enemy king.
+  \item \textbf{Mobility} --- $2\times(\text{my moves}-\text{opponent moves})$.
+  \item \textbf{Passed pawns} (my addition) --- bonus growing toward promotion
+        $\{0,70,45,28,16,8\}$; promotion makes a Queen, decisive on a small board.
+  \item \textbf{Tempo} (my addition) --- $+6$ for the side to move.
+\end{itemize}
+
+\section{Search}
+
+\subsection{Minimax (negamax) --- baseline}
+Both sides play optimally: I maximize, the opponent minimizes. The
+\textbf{negamax} identity ($\text{score}=-\,\text{opponent's score}$) lets one
+routine handle both sides. This is my correctness oracle --- every faster
+algorithm must return the \emph{same} score at the same depth. Winning terminals
+score $\texttt{P\_MAX}-\text{ply}$ to prefer faster wins.
+
+\subsection{Alpha-Beta pruning}
+A window $[\alpha,\beta]$: $\alpha$ is what I'm already guaranteed, $\beta$ what
+the opponent is. When $\alpha\ge\beta$ the opponent would never allow this line,
+so the remaining moves are \textbf{pruned}. Same result as minimax, far fewer
+nodes (start position, depth 6: $621{,}470 \to 26{,}392$ nodes, $\sim$23$\times$).
+
+\subsection{Move ordering}
+Best to worst: (1) transposition-table move; (2) captures by \textbf{MVV-LVA};
+(3) \textbf{killer moves} (quiet moves that recently caused a cutoff at this
+ply); (4) \textbf{history heuristic} (quiet moves ranked by a
+$[\text{side}][\text{from}][\text{to}]$ table incremented by $\text{depth}^2$ on
+cutoffs); plus a promotion bonus.
+
+\subsection{Quiescence search}
+To avoid the horizon effect, the leaf keeps searching \textbf{captures only}
+until quiet. A \textbf{stand-pat} (static eval) bounds it so we never force a bad
+capture. Raises selective depth from 6 to $\sim$18 at nominal depth 6.
+
+\subsection{PVS (Principal Variation Search)}
+The first (best-ordered) move is searched with the full window; later moves are
+probed with a \textbf{null window} $[\alpha,\alpha{+}1]$ and only re-searched
+fully if the probe beats $\alpha$. Same result as Alpha-Beta, fewer nodes.
+
+\subsection{Transposition table}
+A \textbf{Zobrist}-keyed table ($2^{22}$ entries) stores each position's score,
+bound (exact/lower/upper), depth, and best move. A sufficiently deep entry cuts
+off immediately; otherwise its move is tried first. Mate scores are stored
+ply-relative; replacement is depth-preferred; the full 64-bit key guards against
+collisions. Depth 6: $26{,}392 \to 9{,}954$ nodes; in 3\,s, depth $9\to 11$.
+
+\subsection{Null-move pruning}
+If passing (letting the opponent move twice) still beats $\beta$ after a reduced
+($R=2$) search, the position is almost certainly a cutoff and is pruned. Guards:
+not in check, not in pawn-only endgames (zugzwang), not on mate windows, no two
+null moves in a row.
+
+\subsection{Late Move Reductions (LMR)}
+Late, quiet moves are searched at reduced depth first and only re-searched fully
+if they beat $\alpha$. In a 3\,s budget this raised the reachable depth from 12
+to 14.
+
+\subsection{Aspiration windows}
+Each deepening pass uses a narrow window around the previous score
+($\text{prev}\pm30$), widening on a fail --- always correctness-safe. Depth
+$14\to15$ in 3\,s.
+
+\subsection{Iterative deepening \& time control}
+The protocol layer drives depths $1,2,3,\dots$, emitting the best move each
+depth and stopping at $\sim$half the move-time. The transposition table and the
+previous PV make each pass start from the best-known move. The search is
+abortable, so we never exceed 10\,s nor return an illegal move.
+
+\section{Results}
+Depth reached from the start position in a 3\,s budget:
+\begin{center}
+\begin{tabular}{|l|c|}
+\hline
+Configuration & Depth \\ \hline
+Alpha-Beta + quiescence & 9 \\
++ transposition table & 11 \\
++ null-move & 12 \\
++ LMR & 14 \\
++ aspiration & 15 \\ \hline
+\end{tabular}
+\end{center}
+
+Against the provided opponents (2\,s/move, 4 games, both colors):
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+Opponent & Result (my engine) \\ \hline
+\texttt{minimax-weak} & beats (4--0 at depth 6) \\
+\texttt{minimax-strong} & beats (3--1 at 2\,s; 2--0 at depth 7) \\
+\texttt{boss-ubgi} & \textbf{sweeps 4--0, both colors} \\ \hline
+\end{tabular}
+\end{center}
+\textit{(Self-play tuning results to be added after the tuning phase.)}
+
+\section{Constraints compliance}
+Standard library only (no third-party code, inline asm, threads, or AVX in the
+policy); $\le 10$\,s/move via abortable iterative deepening; $\le 4$\,GB
+(transposition table $\sim$80\,MB); never an illegal move.
+
+\section{Build \& run}
+\begin{verbatim}
+mingw32-make all            # engine + benchmark + unit tests
+./build/minichess-ubgi.exe  # UBGI engine on stdin/stdout
+\end{verbatim}
+The submission policy is self-contained: it compiles with
+\texttt{state.cpp}/\texttt{state.hpp} alone and exposes the standard
+\texttt{search(State*, depth, GameHistory\&, SearchContext\&)} interface used by
+the benchmark.
+
+\end{document}
