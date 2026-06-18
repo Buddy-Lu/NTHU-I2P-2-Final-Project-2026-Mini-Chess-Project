@@ -22,15 +22,6 @@ struct ABParams {
     bool use_lmr = true;        // late move reductions (PVS policy)
     bool use_asp = true;        // aspiration windows at the root (PVS policy)
 
-    /* Tunable numeric knobs (runtime, so they can be A/B-tested via UCI
-     * options without recompiling). Defaults reproduce the baked-in engine. */
-    int tempo = 6;          // eval: bonus for side to move
-    int pp_scale = 100;     // eval: passed-pawn bonus scale, percent
-    int null_r = 2;         // null-move reduction
-    int lmr_min_move = 3;   // LMR: first move index eligible for reduction
-    int lmr_min_depth = 3;  // LMR: minimum depth to reduce
-    int asp_delta = 30;     // aspiration window half-width
-
     static ABParams from_map(const ParamMap& m){
         ABParams p;
         p.use_kp_eval       = param_bool(m, "UseKPEval", true);
@@ -42,12 +33,6 @@ struct ABParams {
         p.use_null          = param_bool(m, "UseNullMove", true);
         p.use_lmr           = param_bool(m, "UseLMR", true);
         p.use_asp           = param_bool(m, "UseAspiration", true);
-        p.tempo             = param_int(m, "Tempo", 6);
-        p.pp_scale          = param_int(m, "PassedPawnScale", 100);
-        p.null_r            = param_int(m, "NullR", 2);
-        p.lmr_min_move      = param_int(m, "LMRMinMove", 3);
-        p.lmr_min_depth     = param_int(m, "LMRMinDepth", 3);
-        p.asp_delta         = param_int(m, "AspDelta", 30);
         return p;
     }
 };

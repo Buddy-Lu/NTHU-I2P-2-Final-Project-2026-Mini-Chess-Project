@@ -8,32 +8,17 @@ Run everything from the **project root** in **Git Bash**.
 
 ## Two kinds of experiment
 
-### 1. Runtime params (no rebuild) — preferred
-The PVS policy exposes its knobs as runtime params, so **most tuning needs no
-rebuild and no source edit** — same binary, the candidate just gets the param:
-
-On/off toggles: `UseTT`, `UseNullMove`, `UseLMR`, `UseAspiration`,
-`UseQuiescence`, `OrderMoves`, `UseKPEval`, `UseEvalMobility`.
-
-Numeric knobs (defaults reproduce the baked-in engine exactly):
-`Tempo` (6), `PassedPawnScale` (100 = ×1, in %), `NullR` (2),
-`LMRMinMove` (3), `LMRMinDepth` (3), `AspDelta` (30).
+### 1. Runtime toggle (no rebuild)
+The PVS policy exposes these on/off params: `UseTT`, `UseNullMove`, `UseLMR`,
+`UseAspiration`, `UseQuiescence`, `OrderMoves`, `UseKPEval`, `UseEvalMobility`.
+A/B them directly — same binary, candidate gets the param:
 
 ```bash
-# does a higher tempo help?  (candidate Tempo=12 vs reference Tempo=6)
-bash tools/selfplay.sh build/minichess-ubgi.exe build/minichess-ubgi.exe 40 7 4 7 "Tempo=12"
-
-# stronger passed-pawn weighting?
-bash tools/selfplay.sh build/minichess-ubgi.exe build/minichess-ubgi.exe 40 7 4 7 "PassedPawnScale=150"
-
-# deeper null-move reduction?
-bash tools/selfplay.sh build/minichess-ubgi.exe build/minichess-ubgi.exe 40 7 4 7 "NullR=3"
+bash tools/selfplay.sh build/minichess-ubgi.exe build/minichess-ubgi.exe 40 7 4 7 "UseNullMove=false"
 ```
-(For the candidate, score **> 55%** = the change helps; **< 45%** = it hurts;
-in between = noise.)
+(Score < 50% for the candidate means the feature helps — keep it on.)
 
-### 2. Source change not exposed as a param (needs a rebuild)
-Only for things that aren't runtime params (e.g. PST tables, a new eval term).
+### 2. Eval / search constant (needs a rebuild)
 Build a labelled variant, then compare it to the current build:
 
 ```bash

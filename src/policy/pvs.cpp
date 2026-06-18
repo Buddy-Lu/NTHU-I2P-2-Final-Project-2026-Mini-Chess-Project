@@ -305,7 +305,7 @@ int PVS::eval_ctx(
         BaseState* null_bs = state->create_null_state();
         State* null_st = static_cast<State*>(null_bs);
         if(null_st->game_state != WIN){          /* not in check */
-            const int R = p.null_r;              /* reduction */
+            const int R = 2;                     /* reduction */
             int null_score = -eval_ctx(null_st, depth - 1 - R, history,
                                        ply + 1, ctx, -beta, -beta + 1, p, false);
             delete null_bs;
@@ -356,7 +356,7 @@ int PVS::eval_ctx(
                           ((int)action.second.first == 0 ||
                            (int)action.second.first == BOARD_H - 1));
             bool quiet = !is_capture(state, action) && !promo;
-            if(p.use_lmr && quiet && move_index >= p.lmr_min_move && depth >= p.lmr_min_depth){
+            if(p.use_lmr && quiet && move_index >= 3 && depth >= 3){
                 reduction = 1 + ((move_index >= 6 && depth >= 6) ? 1 : 0);
             }
 
@@ -418,7 +418,6 @@ SearchResult PVS::search(
 ){
     ctx.reset();
     ABParams p = ABParams::from_map(ctx.params);
-    set_eval_params(p.tempo, p.pp_scale);   /* propagate eval knobs to evaluate() */
     SearchResult result;
     result.depth = depth;
 
@@ -456,8 +455,8 @@ SearchResult PVS::search(
                 && g_prev_depth == depth - 1
                 && g_prev_score < MATE_ZONE && g_prev_score > -MATE_ZONE;
     if(use_asp){
-        asp_lo = g_prev_score - p.asp_delta;
-        asp_hi = g_prev_score + p.asp_delta;
+        asp_lo = g_prev_score - 30;
+        asp_hi = g_prev_score + 30;
     }
 
     for(;;){
@@ -555,12 +554,6 @@ ParamMap PVS::default_params(){
         {"UseNullMove", "true"},
         {"UseLMR", "true"},
         {"UseAspiration", "true"},
-        {"Tempo", "6"},
-        {"PassedPawnScale", "100"},
-        {"NullR", "2"},
-        {"LMRMinMove", "3"},
-        {"LMRMinDepth", "3"},
-        {"AspDelta", "30"},
     };
 }
 
@@ -575,11 +568,5 @@ std::vector<ParamDef> PVS::param_defs(){
         {"UseNullMove", ParamDef::CHECK, "true"},
         {"UseLMR", ParamDef::CHECK, "true"},
         {"UseAspiration", ParamDef::CHECK, "true"},
-        {"Tempo", ParamDef::SPIN, "6", 0, 50},
-        {"PassedPawnScale", ParamDef::SPIN, "100", 0, 400},
-        {"NullR", ParamDef::SPIN, "2", 1, 4},
-        {"LMRMinMove", ParamDef::SPIN, "3", 1, 12},
-        {"LMRMinDepth", ParamDef::SPIN, "3", 1, 12},
-        {"AspDelta", ParamDef::SPIN, "30", 5, 200},
     };
 }

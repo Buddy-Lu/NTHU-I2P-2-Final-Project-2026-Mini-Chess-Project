@@ -7,12 +7,6 @@
 #include "base_state.hpp"
 #include "config.hpp"
 
-/* Runtime-tunable evaluation knobs (so they can be A/B-tested via UCI options
- * without recompiling). Defaults reproduce the baked-in evaluation. A search
- * policy sets these from its params before searching; left alone, evaluate()
- * uses the defaults. */
-void set_eval_params(int tempo, int passed_pawn_scale_pct);
-
 
 class Board {
 public:

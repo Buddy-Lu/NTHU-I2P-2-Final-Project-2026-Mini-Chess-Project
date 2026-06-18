@@ -57,14 +57,8 @@ static int king_tropism(
     return 0;
 }
 
-/* Runtime-tunable eval knobs (defaults reproduce the baked-in eval). */
-static int g_eval_tempo = 6;       /* bonus for side to move */
-static int g_eval_pp_scale = 100;  /* passed-pawn bonus scale, percent */
-
-void set_eval_params(int tempo, int passed_pawn_scale_pct){
-    g_eval_tempo = tempo;
-    g_eval_pp_scale = passed_pawn_scale_pct;
-}
+/* Small bonus for having the move. */
+static const int kp_tempo = 6;
 
 /* Passed-pawn bonus, indexed by rows-to-promotion (0..BOARD_H-1):
  * the closer to promotion, the larger. Promotion makes a Queen, which
@@ -171,9 +165,9 @@ int State::evaluate(
         }
 
         /* passed pawns (promotion to Queen is decisive) + tempo */
-        self_score += passed_pawns(self_board, oppn_board, this->player) * g_eval_pp_scale / 100;
-        oppn_score += passed_pawns(oppn_board, self_board, 1 - this->player) * g_eval_pp_scale / 100;
-        self_score += g_eval_tempo;
+        self_score += passed_pawns(self_board, oppn_board, this->player);
+        oppn_score += passed_pawns(oppn_board, self_board, 1 - this->player);
+        self_score += kp_tempo;
 
     }else{
         /* === Simple material-only eval === */
