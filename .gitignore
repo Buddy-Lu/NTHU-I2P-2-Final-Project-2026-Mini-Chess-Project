@@ -1,6 +1,7 @@
 .vscode/
 .claude/
 build/
+desktop.ini
 *models/
 ~$*
 *.bin

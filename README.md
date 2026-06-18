@@ -436,3 +436,24 @@ docs/                         # design/reference notes (from the parent project)
 > was derived from, and describes features not present here (other games, NNUE
 > evaluation, additional search algorithms). Treat this README as the source of
 > truth for the current code.
+
+---
+
+## Environment Setup (Windows PowerShell / Bash)
+
+Follow these steps to set up the C++ compilation environment and Python dependencies on Windows using `micromamba`.
+
+### 1. Install Micromamba
+Run the following command in **PowerShell**:
+```powershell
+Invoke-Expression ((Invoke-WebRequest -Uri [https://micro.mamba.pm/install.ps1](https://micro.mamba.pm/install.ps1)).Content)
+
+eval "$(micromamba.exe shell hook --shell bash)"
+
+micromamba activate base
+micromamba install gxx make -c conda-forge -y
+micromamba install python=3.13 uv -y
+micromamba install pygame -c conda-forge -y
+
+make
+python ./gui/main.py
