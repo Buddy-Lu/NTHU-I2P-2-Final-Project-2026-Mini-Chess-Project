@@ -31,6 +31,9 @@ struct ABParams {
     int lmr_min_depth = 3;  // LMR: minimum depth to reduce
     int asp_delta = 30;     // aspiration window half-width
 
+    bool use_nnue = false;          // use the trained NNUE evaluation
+    std::string nnue_path = "nnue.bin";
+
     static ABParams from_map(const ParamMap& m){
         ABParams p;
         p.use_kp_eval       = param_bool(m, "UseKPEval", true);
@@ -48,6 +51,8 @@ struct ABParams {
         p.lmr_min_move      = param_int(m, "LMRMinMove", 3);
         p.lmr_min_depth     = param_int(m, "LMRMinDepth", 3);
         p.asp_delta         = param_int(m, "AspDelta", 30);
+        p.use_nnue          = param_bool(m, "UseNNUE", false);
+        p.nnue_path         = param_str(m, "NNUEPath", "nnue.bin");
         return p;
     }
 };

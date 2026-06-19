@@ -35,7 +35,7 @@ struct TTEntry {
 std::vector<TTEntry> g_tt;
 uint64_t g_tt_mask = 0;
 
-constexpr int TT_BITS = 22;             // 2^22 entries (~80 MB), well under 4 GB
+constexpr int TT_BITS = 24;             // 2^24 entries (~80 MB), well under 4 GB
 constexpr int MATE_ZONE = P_MAX - 1000; // scores above this are mate-distance
 
 void tt_init(){
@@ -404,7 +404,7 @@ int PVS::eval_ctx(
 
 
 /*============================================================
- * PVS — search (root)
+ * c
  *
  * The first root move establishes the PV with a full window;
  * later root moves are scouted with a null window and only
@@ -419,6 +419,7 @@ SearchResult PVS::search(
     ctx.reset();
     ABParams p = ABParams::from_map(ctx.params);
     set_eval_params(p.tempo, p.pp_scale);   /* propagate eval knobs to evaluate() */
+    nnue::configure(p.use_nnue, p.nnue_path);
     SearchResult result;
     result.depth = depth;
 
@@ -561,6 +562,7 @@ ParamMap PVS::default_params(){
         {"LMRMinMove", "3"},
         {"LMRMinDepth", "3"},
         {"AspDelta", "30"},
+        {"UseNNUE", "false"},
     };
 }
 
@@ -581,5 +583,6 @@ std::vector<ParamDef> PVS::param_defs(){
         {"LMRMinMove", ParamDef::SPIN, "3", 1, 12},
         {"LMRMinDepth", ParamDef::SPIN, "3", 1, 12},
         {"AspDelta", ParamDef::SPIN, "30", 5, 200},
+        {"UseNNUE", ParamDef::CHECK, "false"},
     };
 }

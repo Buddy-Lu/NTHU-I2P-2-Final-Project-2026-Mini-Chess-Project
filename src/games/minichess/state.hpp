@@ -6,6 +6,7 @@
 
 #include "base_state.hpp"
 #include "config.hpp"
+#include "nnue.hpp"
 
 /* Runtime-tunable evaluation knobs (so they can be A/B-tested via UCI options
  * without recompiling). Defaults reproduce the baked-in evaluation. A search

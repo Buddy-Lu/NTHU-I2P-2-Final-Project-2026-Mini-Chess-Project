@@ -259,6 +259,7 @@ SearchResult AlphaBeta::search(
 ){
     ctx.reset();
     ABParams p = ABParams::from_map(ctx.params);
+    nnue::configure(p.use_nnue, p.nnue_path);
     SearchResult result;
     result.depth = depth;
 
@@ -329,6 +330,7 @@ ParamMap AlphaBeta::default_params(){
         {"ReportPartial", "true"},
         {"OrderMoves", "true"},
         {"UseQuiescence", "true"},
+        {"UseNNUE", "false"},
     };
 }
 
@@ -339,5 +341,6 @@ std::vector<ParamDef> AlphaBeta::param_defs(){
         {"ReportPartial", ParamDef::CHECK, "true"},
         {"OrderMoves", ParamDef::CHECK, "true"},
         {"UseQuiescence", ParamDef::CHECK, "true"},
+        {"UseNNUE", ParamDef::CHECK, "false"},
     };
 }
