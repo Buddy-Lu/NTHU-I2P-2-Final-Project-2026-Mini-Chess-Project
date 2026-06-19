@@ -12,7 +12,7 @@ TARGET_UNITTEST = $(UNITTESTS:$(UNITTEST_DIR)/%_test.cpp=%)
 
 MINICHESS_INC = -Isrc/games/minichess -Isrc/state -Isrc
 
-.PHONY: all clean minichess benchmark test datagen
+.PHONY: all clean minichess benchmark test
 
 all: minichess benchmark test
 
@@ -27,9 +27,6 @@ minichess: | $(BUILD_DIR)
 
 benchmark: | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(MINICHESS_INC) -o $(BUILD_DIR)/minichess-benchmark $(STATE_SOURCE) $(POLICY_SRC) src/benchmark.cpp
-
-datagen: | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(MINICHESS_INC) -o $(BUILD_DIR)/minichess-datagen $(STATE_SOURCE) $(POLICY_SRC) src/nnue_datagen.cpp
 
 test: $(TARGET_UNITTEST)
 

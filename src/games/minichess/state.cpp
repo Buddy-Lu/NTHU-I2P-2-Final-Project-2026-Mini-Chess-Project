@@ -127,11 +127,6 @@ int State::evaluate(
         return P_MAX;
     }
 
-    /* === NNUE neural evaluation (when enabled and loaded) === */
-    if(nnue::enabled() && nnue::net().ready){
-        return nnue::eval(this->board.board, this->player);
-    }
-
     auto self_board = this->board.board[this->player];
     auto oppn_board = this->board.board[1 - this->player];
     int self_score = 0, oppn_score = 0;

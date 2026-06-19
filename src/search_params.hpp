@@ -40,9 +40,3 @@ inline int param_int(const ParamMap& m, const std::string& key, int fallback = 0
     }
     return std::atoi(it->second.c_str());
 }
-
-inline std::string param_str(const ParamMap& m, const std::string& key,
-                             const std::string& fallback = ""){
-    auto it = m.find(key);
-    return (it == m.end()) ? fallback : it->second;
-}

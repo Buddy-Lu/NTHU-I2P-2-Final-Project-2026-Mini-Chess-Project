@@ -16,7 +16,6 @@
 #include "minimax.hpp"
 #include "alphabeta.hpp"
 #include "pvs.hpp"
-#include "mcts.hpp"
 #include "random.hpp"
 
 struct AlgoEntry {
@@ -50,14 +49,6 @@ inline const std::vector<AlgoEntry>& get_algo_table(){
             PVS::param_defs(),
             [](State* s, int d, GameHistory& h, SearchContext& c){
                 return PVS::search(s, d, h, c);
-            }
-        },
-        {
-            "mcts",
-            MCTS::default_params(),
-            MCTS::param_defs(),
-            [](State* s, int d, GameHistory& h, SearchContext& c){
-                return MCTS::search(s, d, h, c);
             }
         },
         {
